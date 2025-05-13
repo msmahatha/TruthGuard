@@ -1,23 +1,27 @@
 // src/ai/tools/fact-check-claim-tool.ts
 'use server';
 /**
- * @fileOverview A Genkit tool for fact-checking a single claim using an LLM.
+ * @fileOverview A function for fact-checking a single claim using an LLM.
  *
- * - factCheckSingleClaimTool - The tool definition.
+ * - factCheckSingleClaim - The function to fact-check a claim.
+ * - FactCheckSingleClaimInput - The input type for the factCheckSingleClaim.
+ * - FactCheckSingleClaimOutput - The output type for the factCheckSingleClaim.
  */
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 import {ClaimFactCheckResultSchema} from '@/ai/schemas/claim-fact-check-schema';
 
-const FactCheckClaimInputSchema = z.object({
+const FactCheckSingleClaimInputSchema = z.object({
   claim: z.string().describe('The specific claim to be fact-checked.'),
 });
+export type FactCheckSingleClaimInput = z.infer<typeof FactCheckSingleClaimInputSchema>;
+export type FactCheckSingleClaimOutput = z.infer<typeof ClaimFactCheckResultSchema>;
 
-// This prompt is used internally by the tool
+// This prompt is used internally by the function
 const factCheckPrompt = ai.definePrompt({
-  name: 'singleClaimFactCheckPrompt',
-  input: { schema: FactCheckClaimInputSchema },
-  output: { schema: ClaimFactCheckResultSchema.omit({ claim: true }) }, // Tool output should match this, minus the claim itself which is added by the tool
+  name: 'singleClaimFactCheckInternalPrompt', // Renamed for clarity
+  input: { schema: FactCheckSingleClaimInputSchema },
+  output: { schema: ClaimFactCheckResultSchema.omit({ claim: true }) }, 
   prompt: `You are an AI fact-checker. Analyze the following claim and provide a fact-check assessment.
 
 Claim: "{{{claim}}}"
@@ -40,33 +44,24 @@ Ensure your output is a JSON object matching the specified schema for 'isTrue', 
   },
 });
 
-export const factCheckSingleClaimTool = ai.defineTool(
-  {
-    name: 'factCheckSingleClaim',
-    description: 'Fact-checks a single textual claim using AI analysis and returns an assessment including truthfulness, confidence, source/reasoning.',
-    inputSchema: FactCheckClaimInputSchema,
-    outputSchema: ClaimFactCheckResultSchema,
-  },
-  async (input) => {
-    const { output: factCheckDetails } = await factCheckPrompt(input);
-    
-    if (!factCheckDetails) {
-        // Handle cases where the prompt might return null or undefined, though output schema should enforce.
-        return {
-            claim: input.claim,
-            isTrue: undefined, 
-            confidenceScore: 0,
-            source: "AI assessment failed or inconclusive.",
-            reason: "The AI could not provide a conclusive fact-check for this claim."
-        };
-    }
-    
-    return {
-      claim: input.claim, // Add the original claim back
-      isTrue: factCheckDetails.isTrue,
-      confidenceScore: factCheckDetails.confidenceScore,
-      source: factCheckDetails.source,
-      reason: factCheckDetails.reason,
-    };
+export async function factCheckSingleClaim(input: FactCheckSingleClaimInput): Promise<FactCheckSingleClaimOutput> {
+  const { output: factCheckDetails } = await factCheckPrompt(input);
+  
+  if (!factCheckDetails) {
+      return {
+          claim: input.claim,
+          isTrue: undefined, 
+          confidenceScore: 0,
+          source: "AI assessment failed or inconclusive.",
+          reason: "The AI could not provide a conclusive fact-check for this claim."
+      };
   }
-);
+  
+  return {
+    claim: input.claim, 
+    isTrue: factCheckDetails.isTrue,
+    confidenceScore: factCheckDetails.confidenceScore,
+    source: factCheckDetails.source,
+    reason: factCheckDetails.reason,
+  };
+}

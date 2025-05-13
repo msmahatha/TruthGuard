@@ -10,7 +10,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import {factCheckSingleClaimTool} from '@/ai/tools/fact-check-claim-tool'; 
+import {factCheckSingleClaim} from '@/ai/tools/fact-check-claim-tool'; 
 import {ClaimFactCheckResultSchema} from '@/ai/schemas/claim-fact-check-schema'; 
 
 const FactCheckImageInputSchema = z.object({
@@ -70,7 +70,8 @@ const factCheckImageFlow = ai.defineFlow(
     }
 
     const factCheckResultsPromises = identifiedClaimsOutput.claims.map(async (claim) => {
-      return factCheckSingleClaimTool({claim}); 
+      // Use the refactored async function directly
+      return factCheckSingleClaim({claim}); 
     });
     
     const settledResults = await Promise.allSettled(factCheckResultsPromises);
@@ -81,7 +82,6 @@ const factCheckImageFlow = ai.defineFlow(
         successfulResults.push(result.value);
       } else if (result.status === 'rejected') {
         console.error("Error fact-checking claim:", result.reason);
-        // Optionally, you could include a placeholder error result for this claim
       }
     });
 
