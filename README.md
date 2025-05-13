@@ -1,4 +1,4 @@
-# Firebase Studio
+# Msmahatha Codes 
 
 This is a NextJS starter in Firebase Studio.
 
