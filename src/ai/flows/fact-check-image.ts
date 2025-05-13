@@ -10,6 +10,8 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import {factCheckSingleClaimTool} from '@/ai/tools/fact-check-claim-tool'; 
+import {ClaimFactCheckResultSchema} from '@/ai/schemas/claim-fact-check-schema'; 
 
 const FactCheckImageInputSchema = z.object({
   imageDataUri: z
@@ -21,15 +23,7 @@ const FactCheckImageInputSchema = z.object({
 export type FactCheckImageInput = z.infer<typeof FactCheckImageInputSchema>;
 
 const FactCheckImageOutputSchema = z.object({
-  results: z.array(
-    z.object({
-      claim: z.string().describe('The claim that was extracted from the image.'),
-      confidenceScore: z
-        .number()
-        .describe('The confidence score of the fact-check, from 0 to 1.'),
-      source: z.string().describe('The source of the fact-check.'),
-    })
-  ),
+  results: z.array(ClaimFactCheckResultSchema), 
 });
 export type FactCheckImageOutput = z.infer<typeof FactCheckImageOutputSchema>;
 
@@ -45,32 +39,16 @@ const extractTextFromImage = ai.definePrompt({
   prompt: `Extract all text from the following image: {{media url=imageDataUri}}`,
 });
 
-const identifyClaims = ai.definePrompt({
-  name: 'identifyClaims',
+const identifyClaimsFromImageText = ai.definePrompt({ 
+  name: 'identifyClaimsFromImageText', 
   input: {schema: z.object({extractedText: z.string()})},
   output: {schema: z.object({claims: z.array(z.string())})},
-  prompt: `Identify all claims in the following text: {{{extractedText}}}`,
+  prompt: `From the following text extracted from an image, identify all distinct factual claims that can be reasonably verified or debunked. List each claim as a string.
+Extracted Text:
+{{{extractedText}}}
+`,
 });
 
-const factCheckClaim = ai.defineTool({
-  name: 'factCheckClaim',
-  description: 'Fact-checks a claim against a database of trusted sources.',
-  inputSchema: z.object({claim: z.string().describe('The claim to fact-check.')}),
-  outputSchema: z.object({
-    confidenceScore: z
-      .number()
-      .describe('The confidence score of the fact-check, from 0 to 1.'),
-    source: z.string().describe('The source of the fact-check.'),
-  }),
-  async fn(input) {
-    // TODO: Implement fact-checking logic here.
-    // This is a placeholder implementation.
-    return {
-      confidenceScore: 0.85,
-      source: 'www.snopes.com',
-    };
-  },
-});
 
 const factCheckImageFlow = ai.defineFlow(
   {
@@ -78,21 +56,35 @@ const factCheckImageFlow = ai.defineFlow(
     inputSchema: FactCheckImageInputSchema,
     outputSchema: FactCheckImageOutputSchema,
   },
-  async input => {
+  async (input) => {
     const {output: extractedTextOutput} = await extractTextFromImage(input);
-    const {output: identifiedClaimsOutput} = await identifyClaims({
-      extractedText: extractedTextOutput!.extractedText,
+    if (!extractedTextOutput?.extractedText) {
+        return {results: []}; 
+    }
+    const {output: identifiedClaimsOutput} = await identifyClaimsFromImageText({ 
+      extractedText: extractedTextOutput.extractedText,
     });
 
-    const factCheckResults = await Promise.all(
-      identifiedClaimsOutput!.claims.map(async claim => {
-        return {
-          claim,
-          ...(await factCheckClaim({claim})),
-        };
-      })
-    );
+    if (!identifiedClaimsOutput?.claims || identifiedClaimsOutput.claims.length === 0) {
+        return {results: []}; 
+    }
 
-    return {results: factCheckResults};
+    const factCheckResultsPromises = identifiedClaimsOutput.claims.map(async (claim) => {
+      return factCheckSingleClaimTool({claim}); 
+    });
+    
+    const settledResults = await Promise.allSettled(factCheckResultsPromises);
+    
+    const successfulResults: z.infer<typeof ClaimFactCheckResultSchema>[] = [];
+    settledResults.forEach(result => {
+      if (result.status === 'fulfilled' && result.value) {
+        successfulResults.push(result.value);
+      } else if (result.status === 'rejected') {
+        console.error("Error fact-checking claim:", result.reason);
+        // Optionally, you could include a placeholder error result for this claim
+      }
+    });
+
+    return {results: successfulResults};
   }
 );

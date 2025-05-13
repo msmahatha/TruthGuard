@@ -10,6 +10,7 @@ import { Loader2, Link2, Image as ImageIcon, FileText, AlertTriangle } from 'luc
 import { factCheckImageUrlAction, factCheckTextAction, summarizeArticleUrlAction } from '@/app/actions';
 import type { FactCheckImageOutput } from '@/ai/flows/fact-check-image';
 import type { SummarizeArticleOutput } from '@/ai/flows/summarize-article';
+import type { FactCheckTextOutput } from '@/ai/flows/fact-check-text';
 import FactCheckResultDisplay, { type FactCheckResultDisplayProps } from '@/components/FactCheckResultDisplay';
 import { useToast } from "@/hooks/use-toast";
 
@@ -38,6 +39,18 @@ export default function TruthGuardApp() {
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+      if (file.size > MAX_FILE_SIZE) {
+        toast({
+          title: "Error",
+          description: "Image file size should not exceed 5MB.",
+          variant: "destructive",
+        });
+        event.target.value = ""; // Reset file input
+        setImageFile(null);
+        setImagePreview(null);
+        return;
+      }
       setImageFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -94,10 +107,9 @@ export default function TruthGuardApp() {
           }
           const result = await factCheckTextAction(textInput);
            if (result.error) {
-            setAppState({ isLoading: false, resultData: { type: 'text', message: result.error }, error: null }); // Display error as a message for text tab
+            setAppState({ isLoading: false, resultData: null, error: result.error });
           } else {
-             // This case should ideally not happen if factCheckTextAction always returns the specific message for now
-            setAppState({ isLoading: false, resultData: { type: 'text', message: result.data as string }, error: null });
+            setAppState({ isLoading: false, resultData: { type: 'text', data: result.data as FactCheckTextOutput }, error: null });
           }
         }
       } catch (e: any) {
@@ -120,7 +132,7 @@ export default function TruthGuardApp() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <Tabs value={activeTab} onValueChange={(newTab) => { setActiveTab(newTab); setAppState({isLoading: false, resultData: null, error: null }); }} className="w-full">
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="url" className="text-base py-2.5">
                 <Link2 className="mr-2 h-5 w-5" /> URL
@@ -148,7 +160,7 @@ export default function TruthGuardApp() {
               <div className="space-y-4">
                 <Input
                   type="file"
-                  accept="image/*"
+                  accept="image/png, image/jpeg, image/webp, image/gif"
                   onChange={handleImageChange}
                   className="text-base file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                   aria-label="Upload image"
